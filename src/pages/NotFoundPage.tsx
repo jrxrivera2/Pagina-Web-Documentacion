@@ -1,0 +1,17 @@
+import { Link } from "react-router-dom";
+
+import { Button } from "@/components/ui/button";
+
+export function NotFoundPage() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
+      <h1 className="text-5xl font-bold">404</h1>
+      <p className="text-muted-foreground">
+        La pagina que buscas no existe o aun no esta implementada.
+      </p>
+      <Button asChild>
+        <Link to="/">Volver al inicio</Link>
+      </Button>
+    </div>
+  );
+}
