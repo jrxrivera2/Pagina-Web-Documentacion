@@ -72,13 +72,17 @@ export function DocumentoNuevoPage() {
   const [errorArchivos, setErrorArchivos] = useState<string | null>(null);
 
   const dependenciasUsuario = useMemo(
-    () => user?.dependencias.map((d) => d.dependencia) ?? [],
+    () =>
+      user?.dependencias
+        .filter((ud) => ud.dependencia.activo)
+        .map((d) => d.dependencia) ?? [],
     [user],
   );
 
   const dependenciaOrigenDefault = useMemo(() => {
-    const principal = user?.dependencias.find((d) => d.es_principal);
-    return (principal ?? user?.dependencias[0])?.dependencia.id ?? "";
+    const activas = user?.dependencias.filter((d) => d.dependencia.activo) ?? [];
+    const principal = activas.find((d) => d.es_principal);
+    return (principal ?? activas[0])?.dependencia.id ?? "";
   }, [user]);
 
   const {
@@ -215,7 +219,15 @@ export function DocumentoNuevoPage() {
         </div>
       )}
 
-      {dependenciasUsuario.length === 0 && user && (
+      {dependenciasUsuario.length === 0 && user && user.dependencias.length > 0 && (
+        <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-4 text-sm">
+          Tu dependencia asignada esta <strong>inactiva</strong>. No puedes crear
+          ni enviar documentos hasta que el administrador la reactive en
+          Administracion → Dependencias.
+        </div>
+      )}
+
+      {dependenciasUsuario.length === 0 && user && user.dependencias.length === 0 && (
         <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-4 text-sm">
           No tienes ninguna dependencia asignada. No podras crear documentos
           hasta que el administrador te asigne una (por ejemplo Nomina con rol

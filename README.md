@@ -130,6 +130,10 @@ Copia y pega [supabase/migrations/0004_admin_email_profile.sql](supabase/migrati
 
 Ejecuta [supabase/migrations/0013_estado_caso_manual.sql](supabase/migrations/0013_estado_caso_manual.sql). Permite marcar cada documento como **Abierto**, **En seguimiento** o **Cerrado** desde el detalle, y muestra notificaciones nuevas en **Bandeja** (campana del menu y alerta en la pagina).
 
+### Paso 15 — Dependencias inactivas no pueden enviar documentos
+
+Ejecuta [supabase/migrations/0014_dependencia_activa_documentos.sql](supabase/migrations/0014_dependencia_activa_documentos.sql). Bloquea crear o enviar documentos desde una dependencia **inactiva** y rechaza destinatarios inactivos. Sin esto, desactivar Nomina en el panel admin no impide enviar documentos.
+
 ### Paso 11 — Fix: usuario Nomina puede crear documentos
 
 Si al enviar un documento aparece error de permisos o RLS, ejecuta **en este orden** en el SQL Editor:
