@@ -8,7 +8,9 @@ import { supabase } from "@/lib/supabase";
 import type {
   Documento,
   DocumentoArchivo,
+  DocumentoComentario,
   DocumentoDestinatario,
+  DocumentoEvento,
 } from "@/lib/types";
 
 export const documentosKeys = {
@@ -20,6 +22,9 @@ export const documentosKeys = {
   archivos: (id: string) => [...documentosKeys.all, "archivos", id] as const,
   destinatarios: (id: string) =>
     [...documentosKeys.all, "destinatarios", id] as const,
+  eventos: (id: string) => [...documentosKeys.all, "eventos", id] as const,
+  comentarios: (id: string) =>
+    [...documentosKeys.all, "comentarios", id] as const,
 };
 
 /** Documento + datos del creador y dependencia origen para listados. */
@@ -292,4 +297,202 @@ export async function getUrlDescarga(storagePath: string): Promise<string> {
     throw new Error(error?.message ?? "No se pudo generar URL de descarga");
   }
   return data.signedUrl;
+}
+
+// ---------------------------------------------------------------------------
+// FASE 4: Trazabilidad, comentarios, respuestas, nueva version
+// ---------------------------------------------------------------------------
+
+export interface DocumentoEventoFull extends DocumentoEvento {
+  usuario: { id: string; nombre_completo: string } | null;
+}
+
+interface EventoRow extends DocumentoEvento {
+  usuario?:
+    | { id: string; nombre_completo: string }
+    | { id: string; nombre_completo: string }[]
+    | null;
+}
+
+export function useDocumentoEventos(documentoId: string | undefined) {
+  return useQuery({
+    queryKey: documentosKeys.eventos(documentoId ?? ""),
+    enabled: Boolean(documentoId),
+    queryFn: async (): Promise<DocumentoEventoFull[]> => {
+      const { data, error } = await supabase
+        .from("documento_eventos")
+        .select("*, usuario:profiles(id, nombre_completo)")
+        .eq("documento_id", documentoId as string)
+        .order("created_at", { ascending: true });
+      if (error) throw new Error(error.message);
+      return ((data ?? []) as unknown as EventoRow[]).map((row) => ({
+        ...row,
+        usuario: pickFirst(row.usuario),
+      }));
+    },
+  });
+}
+
+export interface DocumentoComentarioFull extends DocumentoComentario {
+  usuario: { id: string; nombre_completo: string; avatar_url: string | null } | null;
+}
+
+interface ComentarioRow extends DocumentoComentario {
+  usuario?:
+    | { id: string; nombre_completo: string; avatar_url: string | null }
+    | { id: string; nombre_completo: string; avatar_url: string | null }[]
+    | null;
+}
+
+export function useDocumentoComentarios(documentoId: string | undefined) {
+  return useQuery({
+    queryKey: documentosKeys.comentarios(documentoId ?? ""),
+    enabled: Boolean(documentoId),
+    queryFn: async (): Promise<DocumentoComentarioFull[]> => {
+      const { data, error } = await supabase
+        .from("documento_comentarios")
+        .select("*, usuario:profiles(id, nombre_completo, avatar_url)")
+        .eq("documento_id", documentoId as string)
+        .order("created_at", { ascending: true });
+      if (error) throw new Error(error.message);
+      return ((data ?? []) as unknown as ComentarioRow[]).map((row) => ({
+        ...row,
+        usuario: pickFirst(row.usuario),
+      }));
+    },
+  });
+}
+
+export function useCrearComentario(documentoId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { contenido: string; usuarioId: string }) => {
+      const { error } = await supabase.from("documento_comentarios").insert({
+        documento_id: documentoId,
+        usuario_id: input.usuarioId,
+        contenido: input.contenido.trim(),
+      });
+      if (error) throw new Error(error.message);
+
+      const { error: errEvt } = await supabase.rpc("registrar_evento", {
+        p_documento_id: documentoId,
+        p_tipo_evento: "comentado",
+        p_metadata: {},
+      });
+      if (errEvt) throw new Error(errEvt.message);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: documentosKeys.comentarios(documentoId) });
+      qc.invalidateQueries({ queryKey: documentosKeys.eventos(documentoId) });
+    },
+  });
+}
+
+export function useResponderDocumento(documentoId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { aprobar: boolean; comentario?: string }) => {
+      const { error } = await supabase.rpc("responder_documento", {
+        p_documento_id: documentoId,
+        p_aprobar: input.aprobar,
+        p_comentario: input.comentario && input.comentario.trim().length > 0
+          ? input.comentario.trim()
+          : null,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: documentosKeys.detalle(documentoId) });
+      qc.invalidateQueries({ queryKey: documentosKeys.eventos(documentoId) });
+      qc.invalidateQueries({ queryKey: documentosKeys.comentarios(documentoId) });
+      qc.invalidateQueries({ queryKey: documentosKeys.all });
+    },
+  });
+}
+
+export function useMarcarVisto(documentoId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      if (!documentoId) return;
+      const { error } = await supabase.rpc("marcar_visto", {
+        p_documento_id: documentoId,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      if (!documentoId) return;
+      qc.invalidateQueries({ queryKey: documentosKeys.detalle(documentoId) });
+      qc.invalidateQueries({ queryKey: documentosKeys.eventos(documentoId) });
+    },
+  });
+}
+
+export function useNuevaVersion(documentoId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (): Promise<number> => {
+      const { data, error } = await supabase.rpc("nueva_version_documento", {
+        p_documento_id: documentoId,
+      });
+      if (error) throw new Error(error.message);
+      return data as number;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: documentosKeys.detalle(documentoId) });
+      qc.invalidateQueries({ queryKey: documentosKeys.eventos(documentoId) });
+      qc.invalidateQueries({ queryKey: documentosKeys.all });
+    },
+  });
+}
+
+export interface SubirArchivosInput {
+  documentoId: string;
+  version: number;
+  archivos: File[];
+  usuarioId: string;
+}
+
+export function useSubirArchivos() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: SubirArchivosInput) => {
+      const subidos: DocumentoArchivo[] = [];
+      for (const file of input.archivos) {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const path = `${input.documentoId}/v${input.version}/${Date.now()}_${safeName}`;
+
+        const { error: errUp } = await supabase.storage
+          .from("documentos")
+          .upload(path, file, { upsert: false });
+        if (errUp) {
+          throw new Error(`Error subiendo ${file.name}: ${errUp.message}`);
+        }
+
+        const { data: archivo, error: errAr } = await supabase
+          .from("documento_archivos")
+          .insert({
+            documento_id: input.documentoId,
+            storage_path: path,
+            nombre_archivo: file.name,
+            mime_type: file.type || null,
+            tamano: file.size,
+            version: input.version,
+            subido_por: input.usuarioId,
+          })
+          .select("*")
+          .single();
+        if (errAr || !archivo) {
+          throw new Error(errAr?.message ?? "No se pudo registrar el archivo");
+        }
+        subidos.push(archivo as DocumentoArchivo);
+      }
+      return subidos;
+    },
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({
+        queryKey: documentosKeys.detalle(variables.documentoId),
+      });
+    },
+  });
 }

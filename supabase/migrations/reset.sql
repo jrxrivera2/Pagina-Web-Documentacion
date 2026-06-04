@@ -32,6 +32,7 @@ drop function if exists public.registrar_evento(uuid, text, jsonb) cascade;
 drop function if exists public.enviar_documento(uuid)             cascade;
 drop function if exists public.marcar_visto(uuid)                 cascade;
 drop function if exists public.responder_documento(uuid, boolean, text) cascade;
+drop function if exists public.nueva_version_documento(uuid)      cascade;
 drop function if exists public.trg_documento_creado()             cascade;
 
 -- Storage bucket y politicas (Supabase bloquea drop si hay objetos;

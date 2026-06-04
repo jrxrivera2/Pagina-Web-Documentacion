@@ -1,13 +1,10 @@
 -- =============================================================================
--- BOOTSTRAP: ASIGNAR EL PRIMER USUARIO ADMINISTRADOR
+-- BOOTSTRAP: ASIGNAR UN USUARIO EXISTENTE COMO ADMINISTRADOR
 -- =============================================================================
--- Ejecutalo DESPUES de:
---   1) Haber corrido 0001_initial_schema.sql
---   2) Haber creado tu usuario desde:
---      Supabase Dashboard -> Authentication -> Users -> Add user
---      (o desde la pantalla de registro de la app, cuando exista)
+-- Preferible: usa 0007_bootstrap_usuario_admin.sql (crea el usuario y lo asigna).
 --
--- Solo edita los dos valores marcados con TODO y ejecutalo en el SQL Editor.
+-- Este script solo asigna el rol si el usuario YA existe en Authentication.
+-- Ejecutalo DESPUES de 0001 y 0005. Edita v_email y ejecuta en SQL Editor.
 -- =============================================================================
 
 do $$
@@ -16,7 +13,7 @@ declare
     v_email              text := 'admin@ejemplo.com';
 
     -- TODO: nombre de la dependencia inicial donde quedara asignado el admin
-    v_dependencia_nombre text := 'Gerencia General';
+    v_dependencia_nombre text := 'Gerencia';
 
     v_user_id        uuid;
     v_profile_id     uuid;
@@ -31,9 +28,10 @@ begin
         raise exception 'No existe ningun usuario con email %. Crealo primero desde Authentication > Users.', v_email;
     end if;
 
-    insert into public.profiles (id, nombre_completo)
-    values (v_user_id, split_part(v_email, '@', 1))
-    on conflict (id) do nothing;
+    insert into public.profiles (id, email, nombre_completo)
+    values (v_user_id, v_email, split_part(v_email, '@', 1))
+    on conflict (id) do update
+        set email = excluded.email;
 
     v_profile_id := v_user_id;
 
@@ -46,6 +44,10 @@ begin
         select id into v_dependencia_id
         from public.dependencias
         where nombre = v_dependencia_nombre;
+    end if;
+
+    if v_dependencia_id is null then
+        raise exception 'No existe la dependencia %. Ejecuta 0005_seed_dependencias.sql primero.', v_dependencia_nombre;
     end if;
 
     select id into v_rol_admin_id

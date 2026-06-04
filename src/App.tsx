@@ -8,6 +8,9 @@ import { DocumentosListPage } from "@/pages/DocumentosListPage";
 import { DocumentosBandejaPage } from "@/pages/DocumentosBandejaPage";
 import { DocumentoNuevoPage } from "@/pages/DocumentoNuevoPage";
 import { DocumentoDetallePage } from "@/pages/DocumentoDetallePage";
+import { DependenciasAdminPage } from "@/pages/admin/DependenciasAdminPage";
+import { UsuariosAdminPage } from "@/pages/admin/UsuariosAdminPage";
+import { AuditoriaAdminPage } from "@/pages/admin/AuditoriaAdminPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
 function App() {
@@ -36,6 +39,33 @@ function App() {
             }
           />
           <Route path=":id" element={<DocumentoDetallePage />} />
+        </Route>
+
+        <Route path="admin">
+          <Route
+            path="dependencias"
+            element={
+              <ProtectedRoute requierePermiso="dependencias.gestionar">
+                <DependenciasAdminPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="usuarios"
+            element={
+              <ProtectedRoute requierePermiso="usuarios.gestionar">
+                <UsuariosAdminPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="auditoria"
+            element={
+              <ProtectedRoute requierePermiso="auditoria.ver">
+                <AuditoriaAdminPage />
+              </ProtectedRoute>
+            }
+          />
         </Route>
 
         <Route path="*" element={<NotFoundPage />} />

@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   Building2,
   Calendar,
   Download,
+  FilePlus2,
   FileText,
   Loader2,
+  RefreshCcw,
   Send,
   User,
 } from "lucide-react";
@@ -34,17 +36,25 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
+import { AccionesRespuesta } from "@/components/documentos/AccionesRespuesta";
 import {
   EstadoDocumentoBadge,
   EstadoRecepcionBadge,
 } from "@/components/documentos/EstadoBadge";
+import { LineaTrazabilidad } from "@/components/documentos/LineaTrazabilidad";
+import { SeccionComentarios } from "@/components/documentos/SeccionComentarios";
+import { SubirArchivosDialog } from "@/components/documentos/SubirArchivosDialog";
+
 import { useAuth } from "@/hooks/useAuth";
 import {
   getUrlDescarga,
   useDocumento,
   useEnviarDocumento,
+  useMarcarVisto,
+  useNuevaVersion,
 } from "@/lib/queries/documentos";
 import { formatoFecha, formatoTamano } from "@/lib/formato";
+import type { EstadoRecepcion } from "@/lib/types";
 
 export function DocumentoDetallePage() {
   const { id } = useParams<{ id: string }>();
@@ -52,7 +62,40 @@ export function DocumentoDetallePage() {
   const { user } = useAuth();
   const { data: doc, isLoading, error } = useDocumento(id);
   const enviarMutation = useEnviarDocumento();
+  const nuevaVersionMutation = useNuevaVersion(id ?? "");
+  const marcarVistoMutation = useMarcarVisto(id);
   const [descargando, setDescargando] = useState<string | null>(null);
+  const vistoRegistrado = useRef<string | null>(null);
+
+  const misDependenciasIds = useMemo(
+    () => new Set(user?.dependencias.map((d) => d.dependencia.id) ?? []),
+    [user],
+  );
+
+  const esCreador = user && doc ? user.profile.id === doc.creado_por : false;
+
+  const miRecepcion = useMemo(() => {
+    if (!doc || !user) return undefined;
+    return doc.destinatarios.find(
+      (d) =>
+        d.usuario_id === user.profile.id ||
+        (d.usuario_id === null && misDependenciasIds.has(d.dependencia_id)),
+    );
+  }, [doc, user, misDependenciasIds]);
+
+  const soyDestinatario = Boolean(miRecepcion);
+
+  useEffect(() => {
+    if (!doc || !user) return;
+    if (esCreador) return;
+    if (!soyDestinatario) return;
+    if (doc.estado === "borrador") return;
+    if (vistoRegistrado.current === doc.id) return;
+    vistoRegistrado.current = doc.id;
+    marcarVistoMutation.mutate();
+    // marcarVistoMutation reference is stable enough; only re-run when doc.id changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc?.id, user?.profile.id, esCreador, soyDestinatario, doc?.estado]);
 
   const handleDescargar = async (storagePath: string, nombre: string) => {
     setDescargando(storagePath);
@@ -81,8 +124,18 @@ export function DocumentoDetallePage() {
       await enviarMutation.mutateAsync(doc.id);
       toast.success("Documento enviado");
     } catch (err) {
+      const mensaje = err instanceof Error ? err.message : "No se pudo enviar";
+      toast.error(mensaje);
+    }
+  };
+
+  const handleNuevaVersion = async () => {
+    try {
+      const nueva = await nuevaVersionMutation.mutateAsync();
+      toast.success(`Nueva version v${nueva}. Ahora sube los archivos y enviala.`);
+    } catch (err) {
       const mensaje =
-        err instanceof Error ? err.message : "No se pudo enviar";
+        err instanceof Error ? err.message : "No se pudo crear la nueva version";
       toast.error(mensaje);
     }
   };
@@ -97,7 +150,7 @@ export function DocumentoDetallePage() {
     );
   }
 
-  if (error || !doc) {
+  if (error || !doc || !user) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
         <FileText className="h-12 w-12 text-muted-foreground" />
@@ -113,12 +166,18 @@ export function DocumentoDetallePage() {
     );
   }
 
-  const esCreador = user?.profile.id === doc.creado_por;
   const puedeEnviar = esCreador && doc.estado === "borrador";
+  const puedeNuevaVersion =
+    esCreador && (doc.estado === "rechazado" || doc.estado === "aprobado");
+  const puedeAgregarArchivos = esCreador && doc.estado === "borrador";
+  const puedeResponder =
+    soyDestinatario &&
+    !esCreador &&
+    (doc.estado === "enviado" || doc.estado === "en_revision");
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex items-start gap-2">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-4 w-4" />
@@ -134,40 +193,90 @@ export function DocumentoDetallePage() {
           </div>
         </div>
 
-        {puedeEnviar && (
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button>
-                <Send className="h-4 w-4" /> Enviar
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Enviar documento</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Una vez enviado, los destinatarios podran verlo y recibiran
-                  notificaciones. El documento ya no podra borrarse.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={handleEnviar}
-                  disabled={enviarMutation.isPending}
-                >
-                  {enviarMutation.isPending && (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  )}
-                  Enviar ahora
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {puedeAgregarArchivos && (
+            <SubirArchivosDialog
+              documentoId={doc.id}
+              version={doc.version}
+              usuarioId={user.profile.id}
+              titulo="Agregar archivos al borrador"
+              trigger={
+                <Button variant="outline">
+                  <FilePlus2 className="h-4 w-4" />
+                  Agregar archivos
+                </Button>
+              }
+            />
+          )}
+
+          {puedeNuevaVersion && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline">
+                  <RefreshCcw className="h-4 w-4" />
+                  Nueva version
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Crear nueva version</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Se creara la version {doc.version + 1} y el documento
+                    volvera a estado borrador. Los destinatarios deberan
+                    revisar el documento nuevamente cuando lo envies.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleNuevaVersion}
+                    disabled={nuevaVersionMutation.isPending}
+                  >
+                    {nuevaVersionMutation.isPending && (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    )}
+                    Crear version {doc.version + 1}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+
+          {puedeEnviar && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button>
+                  <Send className="h-4 w-4" /> Enviar
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Enviar documento</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Una vez enviado, los destinatarios podran verlo y recibiran
+                    notificaciones.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleEnviar}
+                    disabled={enviarMutation.isPending}
+                  >
+                    {enviarMutation.isPending && (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    )}
+                    Enviar ahora
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+        </div>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-3">
-        <Card className="md:col-span-2">
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Detalles</CardTitle>
           </CardHeader>
@@ -206,10 +315,25 @@ export function DocumentoDetallePage() {
                 <Send className="mt-0.5 h-4 w-4 text-muted-foreground" />
                 <div>
                   <dt className="text-xs text-muted-foreground">Enviado</dt>
-                  <dd>{doc.fecha_envio ? formatoFecha(doc.fecha_envio) : "No enviado"}</dd>
+                  <dd>
+                    {doc.fecha_envio ? formatoFecha(doc.fecha_envio) : "No enviado"}
+                  </dd>
                 </div>
               </div>
             </dl>
+
+            {puedeResponder && (
+              <>
+                <Separator />
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Tu respuesta</p>
+                  <AccionesRespuesta
+                    documentoId={doc.id}
+                    miEstadoRecepcion={miRecepcion?.estado_recepcion as EstadoRecepcion | undefined}
+                  />
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -246,6 +370,11 @@ export function DocumentoDetallePage() {
                         Visto: {formatoFecha(d.fecha_visto)}
                       </p>
                     )}
+                    {d.fecha_respuesta && (
+                      <p className="text-xs text-muted-foreground">
+                        Respondido: {formatoFecha(d.fecha_respuesta)}
+                      </p>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -259,7 +388,7 @@ export function DocumentoDetallePage() {
           <CardTitle>Archivos adjuntos</CardTitle>
           <CardDescription>
             {doc.archivos.length}{" "}
-            {doc.archivos.length === 1 ? "archivo" : "archivos"}
+            {doc.archivos.length === 1 ? "archivo" : "archivos"} en total
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -270,10 +399,7 @@ export function DocumentoDetallePage() {
           ) : (
             <ul className="divide-y">
               {doc.archivos.map((archivo) => (
-                <li
-                  key={archivo.id}
-                  className="flex items-center gap-3 py-3"
-                >
+                <li key={archivo.id} className="flex items-center gap-3 py-3">
                   <FileText className="h-5 w-5 text-muted-foreground" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">
@@ -306,20 +432,10 @@ export function DocumentoDetallePage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Trazabilidad</CardTitle>
-          <CardDescription>
-            Historial de eventos del documento (proximamente en Fase 4).
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            La linea de tiempo con todos los eventos, comentarios y aprobaciones
-            llega en la siguiente fase.
-          </p>
-        </CardContent>
-      </Card>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <LineaTrazabilidad documentoId={doc.id} />
+        <SeccionComentarios documentoId={doc.id} />
+      </div>
     </div>
   );
 }

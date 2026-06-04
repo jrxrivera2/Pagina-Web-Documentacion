@@ -13,7 +13,7 @@ Plataforma web para que la dependencia de Nómina envíe informes y documentos a
 
 ## Estado del proyecto
 
-> Terminadas las fases **0 (Setup)**, **1 (Auth + layout)**, **2 (Modelo de datos)** y **3 (Documentos)**.
+> Terminadas las fases **0 → 6**. Solo queda la fase 7 (pulido y despliegue).
 
 Roadmap:
 
@@ -21,9 +21,9 @@ Roadmap:
 - [x] Fase 1 — Autenticación + perfiles + layout
 - [x] Fase 2 — Modelo de datos en Supabase (migraciones, RLS, triggers)
 - [x] Fase 3 — Documentos: subir, listar, ver detalle, descargar
-- [ ] Fase 4 — Trazabilidad y respuestas (comentarios, aprobaciones, versiones)
-- [ ] Fase 5 — Notificaciones in-app con Realtime
-- [ ] Fase 6 — Panel admin (dependencias, usuarios, auditoría)
+- [x] Fase 4 — Trazabilidad y respuestas (comentarios, aprobaciones, versiones)
+- [x] Fase 5 — Notificaciones in-app con Realtime
+- [x] Fase 6 — Panel admin (dependencias, usuarios, auditoría)
 - [ ] Fase 7 — Pulido, responsive y despliegue
 
 ## Requisitos
@@ -82,12 +82,79 @@ Esto crea:
 
 Ve a **Authentication → Users → Add user → Create new user**. Marca _Auto Confirm User_ para no esperar correo de verificación. El trigger creará automáticamente la fila en `public.profiles`.
 
-### Paso 3 — Asignar ese usuario como administrador
+### Paso 3 — Dependencias iniciales (Gerencia y Nomina)
 
-Abre [supabase/migrations/0002_bootstrap_admin.sql](supabase/migrations/0002_bootstrap_admin.sql), cambia las dos variables del bloque (`v_email` y `v_dependencia_nombre`) por las tuyas, pégalo en SQL Editor y ejecútalo. Esto:
+Copia y pega [supabase/migrations/0005_seed_dependencias.sql](supabase/migrations/0005_seed_dependencias.sql) en el SQL Editor y dale **Run**. Crea las dos dependencias del sistema:
 
-- Asegura que exista la dependencia inicial (ej. *Gerencia General*).
-- Asigna al usuario el rol `administrador` en esa dependencia.
+| Nombre   | Uso principal                                          |
+| -------- | ------------------------------------------------------ |
+| Gerencia | Recibe y aprueba informes                              |
+| Nomina   | Crea y envia documentos hacia Gerencia y otras areas   |
+
+### Paso 4 — Usuario administrador (acceso total)
+
+Abre [supabase/migrations/0007_bootstrap_usuario_admin.sql](supabase/migrations/0007_bootstrap_usuario_admin.sql), edita `v_email`, `v_password` y `v_nombre_completo` si lo deseas, y ejecútalo en el SQL Editor. Esto:
+
+- Crea el usuario en **Authentication** (si no existe).
+- Lo asigna a **Gerencia** con rol **administrador** (todos los permisos del sistema).
+
+Valores por defecto:
+
+| Campo        | Valor por defecto    |
+| ------------ | -------------------- |
+| Email        | `admin@ejemplo.com`  |
+| Contraseña   | `Admin2026!`         |
+| Dependencia  | Gerencia             |
+| Rol          | administrador        |
+
+**Permisos incluidos** (vía rol administrador):
+
+- **Dependencias**: crear, editar y activar/desactivar (`/admin/dependencias`)
+- **Usuarios**: listar, activar/desactivar, editar perfil y asignar roles por dependencia (`/admin/usuarios`)
+- **Auditoría**: ver todos los eventos del sistema (`/admin/auditoria`)
+- **Documentos**: crear, ver todos, enviar, aprobar y archivar
+
+> Para dar de alta usuarios nuevos desde la app: créalos en Supabase (**Authentication → Users → Add user**) y luego asígnales dependencia y rol desde **Administración → Usuarios**. Si el usuario ya existe en Auth, puedes usar [0002_bootstrap_admin.sql](supabase/migrations/0002_bootstrap_admin.sql) solo para asignarle el rol.
+
+> Cambia la contraseña después del primer inicio de sesión.
+
+### Paso 5 — Función de nueva versión (Fase 4)
+
+Copia y pega [supabase/migrations/0003_funciones_fase4.sql](supabase/migrations/0003_funciones_fase4.sql) en el SQL Editor y dale **Run**. Esto agrega la función `nueva_version_documento(uuid)` que permite al creador reabrir un documento aprobado o rechazado en una nueva versión.
+
+### Paso 6 — Email en profiles (Fase 6)
+
+Copia y pega [supabase/migrations/0004_admin_email_profile.sql](supabase/migrations/0004_admin_email_profile.sql) en el SQL Editor y dale **Run**. Agrega la columna `email` a `profiles`, actualiza el trigger `handle_new_user` para guardarla y hace backfill de los usuarios existentes. Sin esto, el panel de administración mostrará "—" en lugar del correo.
+
+### Paso 9 — Eliminar dependencias desde la app
+
+Copia y pega [supabase/migrations/0009_admin_eliminar_dependencia.sql](supabase/migrations/0009_admin_eliminar_dependencia.sql) en el SQL Editor y dale **Run**. Permite borrar dependencias desde **Administracion → Dependencias** (con confirmacion). No permite eliminar si hay documentos vinculados.
+
+### Paso 8 — Panel admin: crear usuarios desde la app
+
+Copia y pega [supabase/migrations/0008_admin_usuarios_ui.sql](supabase/migrations/0008_admin_usuarios_ui.sql) en el SQL Editor y dale **Run**. Habilita:
+
+- Crear usuarios visualmente (Administracion → Usuarios → Nuevo usuario)
+- Asignar permisos **Emisor**, **Receptor** o ambos (rol `emisor_receptor`)
+- Ver usuarios por dependencia (clic en el contador en Administracion → Dependencias)
+- Eliminar usuarios desde la app
+
+### Paso 7 — Usuario de Nomina (opcional)
+
+Abre [supabase/migrations/0006_bootstrap_usuario_nomina.sql](supabase/migrations/0006_bootstrap_usuario_nomina.sql), edita `v_email`, `v_password` y `v_nombre_completo` si lo deseas, y ejecútalo en el SQL Editor. Esto:
+
+- Crea el usuario en **Authentication** (si no existe).
+- Lo asigna a la dependencia **Nomina** con rol **emisor** (puede crear y enviar documentos).
+
+Valores por defecto del script:
+
+| Campo    | Valor por defecto     |
+| -------- | --------------------- |
+| Email    | `nomina@ejemplo.com`  |
+| Contraseña | `Nomina2026!`       |
+| Rol      | `emisor` en Nomina    |
+
+> Cambia la contraseña después del primer inicio de sesión.
 
 ### Reset (opcional, solo desarrollo)
 

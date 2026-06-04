@@ -34,7 +34,12 @@ export type TipoEventoDocumento =
   | "version_nueva"
   | "archivado";
 
-export type NombreRol = "administrador" | "emisor" | "receptor" | string;
+export type NombreRol =
+  | "administrador"
+  | "emisor"
+  | "receptor"
+  | "emisor_receptor"
+  | string;
 
 export type ClavePermiso =
   | "documentos.crear"
@@ -50,6 +55,7 @@ export type ClavePermiso =
 
 export interface Profile {
   id: string;
+  email: string | null;
   nombre_completo: string;
   cedula: string | null;
   cargo: string | null;
