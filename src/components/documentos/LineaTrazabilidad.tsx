@@ -78,7 +78,7 @@ const CONFIG: Record<TipoEventoDocumento, EventoConfig> = {
   },
   editado: {
     icon: PencilLine,
-    texto: "edito el documento",
+    texto: "actualizo el estado del caso",
     color: "text-amber-600",
     bg: "bg-amber-100",
   },
@@ -113,6 +113,29 @@ function descripcionExtra(
   ) {
     return `"${metadata.comentario}"`;
   }
+  if (tipo === "descargado" && typeof metadata.nombre_archivo === "string") {
+    return metadata.nombre_archivo;
+  }
+  if (tipo === "visto") {
+    return "Documento abierto en la plataforma";
+  }
+  if (
+    tipo === "editado" &&
+    metadata.accion === "estado_caso" &&
+    typeof metadata.estado_caso_nuevo === "string"
+  ) {
+    const labels: Record<string, string> = {
+      abierto: "Abierto",
+      cerrado: "Cerrado",
+      en_seguimiento: "En seguimiento",
+    };
+    const nuevo = labels[metadata.estado_caso_nuevo as string] ?? metadata.estado_caso_nuevo;
+    const anterior =
+      typeof metadata.estado_caso_anterior === "string"
+        ? labels[metadata.estado_caso_anterior] ?? metadata.estado_caso_anterior
+        : null;
+    return anterior ? `${anterior} → ${nuevo}` : nuevo;
+  }
   return null;
 }
 
@@ -127,7 +150,7 @@ export function LineaTrazabilidad({ documentoId }: { documentoId: string }) {
           <div>
             <CardTitle>Trazabilidad</CardTitle>
             <CardDescription>
-              Historial completo de eventos del documento.
+              Aperturas, descargas, comentarios y respuestas registradas.
             </CardDescription>
           </div>
         </div>

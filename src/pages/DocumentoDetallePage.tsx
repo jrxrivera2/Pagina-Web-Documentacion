@@ -42,6 +42,7 @@ import {
   EstadoRecepcionBadge,
 } from "@/components/documentos/EstadoBadge";
 import { LineaTrazabilidad } from "@/components/documentos/LineaTrazabilidad";
+import { ResumenCasoDocumento } from "@/components/documentos/ResumenCasoDocumento";
 import { SeccionComentarios } from "@/components/documentos/SeccionComentarios";
 import { SubirArchivosDialog } from "@/components/documentos/SubirArchivosDialog";
 
@@ -52,7 +53,9 @@ import {
   useEnviarDocumento,
   useMarcarVisto,
   useNuevaVersion,
+  useRegistrarDescarga,
 } from "@/lib/queries/documentos";
+import { calcularResumenDestinatario } from "@/lib/estado-caso";
 import { formatoFecha, formatoTamano } from "@/lib/formato";
 import type { EstadoRecepcion } from "@/lib/types";
 
@@ -64,6 +67,7 @@ export function DocumentoDetallePage() {
   const enviarMutation = useEnviarDocumento();
   const nuevaVersionMutation = useNuevaVersion(id ?? "");
   const marcarVistoMutation = useMarcarVisto(id);
+  const registrarDescargaMutation = useRegistrarDescarga(id ?? "");
   const [descargando, setDescargando] = useState<string | null>(null);
   const vistoRegistrado = useRef<string | null>(null);
 
@@ -97,7 +101,11 @@ export function DocumentoDetallePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc?.id, user?.profile.id, esCreador, soyDestinatario, doc?.estado]);
 
-  const handleDescargar = async (storagePath: string, nombre: string) => {
+  const handleDescargar = async (
+    archivoId: string,
+    storagePath: string,
+    nombre: string,
+  ) => {
     setDescargando(storagePath);
     try {
       const url = await getUrlDescarga(storagePath);
@@ -109,6 +117,12 @@ export function DocumentoDetallePage() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      if (id) {
+        await registrarDescargaMutation.mutateAsync({
+          archivoId,
+          nombreArchivo: nombre,
+        });
+      }
     } catch (err) {
       const mensaje =
         err instanceof Error ? err.message : "No se pudo descargar el archivo";
@@ -174,6 +188,12 @@ export function DocumentoDetallePage() {
     soyDestinatario &&
     !esCreador &&
     (doc.estado === "enviado" || doc.estado === "en_revision");
+
+  const puedeEditarEstadoCaso =
+    doc.estado !== "borrador" &&
+    (esCreador || soyDestinatario || user.esAdmin);
+
+  const estadoCaso = doc.estado_caso ?? "abierto";
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -275,6 +295,14 @@ export function DocumentoDetallePage() {
         </div>
       </div>
 
+      <ResumenCasoDocumento
+        documentoId={doc.id}
+        estado={doc.estado}
+        estadoCaso={estadoCaso}
+        destinatarios={doc.destinatarios}
+        puedeEditarEstadoCaso={puedeEditarEstadoCaso}
+      />
+
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
@@ -352,7 +380,11 @@ export function DocumentoDetallePage() {
               </p>
             ) : (
               <ul className="space-y-3">
-                {doc.destinatarios.map((d) => (
+                {doc.destinatarios.map((d) => {
+                  const resumenDest = calcularResumenDestinatario(
+                    d.estado_recepcion,
+                  );
+                  return (
                   <li key={d.id} className="space-y-1">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-sm font-medium">
@@ -360,6 +392,9 @@ export function DocumentoDetallePage() {
                       </p>
                       <EstadoRecepcionBadge estado={d.estado_recepcion} />
                     </div>
+                    <p className="text-xs text-muted-foreground">
+                      {resumenDest.etiqueta}
+                    </p>
                     {d.usuario && (
                       <p className="text-xs text-muted-foreground">
                         {d.usuario.nombre_completo}
@@ -376,7 +411,8 @@ export function DocumentoDetallePage() {
                       </p>
                     )}
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </CardContent>
@@ -414,7 +450,11 @@ export function DocumentoDetallePage() {
                     variant="outline"
                     size="sm"
                     onClick={() =>
-                      handleDescargar(archivo.storage_path, archivo.nombre_archivo)
+                      handleDescargar(
+                        archivo.id,
+                        archivo.storage_path,
+                        archivo.nombre_archivo,
+                      )
                     }
                     disabled={descargando === archivo.storage_path}
                   >

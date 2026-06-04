@@ -126,6 +126,25 @@ Copia y pega [supabase/migrations/0003_funciones_fase4.sql](supabase/migrations/
 
 Copia y pega [supabase/migrations/0004_admin_email_profile.sql](supabase/migrations/0004_admin_email_profile.sql) en el SQL Editor y dale **Run**. Agrega la columna `email` a `profiles`, actualiza el trigger `handle_new_user` para guardarla y hace backfill de los usuarios existentes. Sin esto, el panel de administración mostrará "—" en lugar del correo.
 
+### Paso 14 — Estado de caso manual y notificaciones en bandeja
+
+Ejecuta [supabase/migrations/0013_estado_caso_manual.sql](supabase/migrations/0013_estado_caso_manual.sql). Permite marcar cada documento como **Abierto**, **En seguimiento** o **Cerrado** desde el detalle, y muestra notificaciones nuevas en **Bandeja** (campana del menu y alerta en la pagina).
+
+### Paso 11 — Fix: usuario Nomina puede crear documentos
+
+Si al enviar un documento aparece error de permisos o RLS, ejecuta **en este orden** en el SQL Editor:
+
+1. [0011_fix_rls_documentos_emisor.sql](supabase/migrations/0011_fix_rls_documentos_emisor.sql)
+2. [0012_crear_documento_rpc.sql](supabase/migrations/0012_crear_documento_rpc.sql) — **obligatorio** para que Nomina pueda crear y adjuntar archivos
+
+Verifica en **Administracion → Usuarios** que el usuario tenga rol **emisor** en **Nomina**, y en el formulario **dependencia origen = Nomina** (Tesoreria u otras solo como destinatarios).
+
+Despues: **cerrar sesion y volver a entrar** con el usuario de Nomina.
+
+### Paso 10 — Trazabilidad de caso y descargas
+
+Copia y pega [supabase/migrations/0010_trazabilidad_caso.sql](supabase/migrations/0010_trazabilidad_caso.sql) en el SQL Editor y dale **Run**. Registra cada descarga en la bitacora, sincroniza estados del documento (abierto/en revision/cerrado) y mejora las respuestas de destinatarios.
+
 ### Paso 9 — Eliminar dependencias desde la app
 
 Copia y pega [supabase/migrations/0009_admin_eliminar_dependencia.sql](supabase/migrations/0009_admin_eliminar_dependencia.sql) en el SQL Editor y dale **Run**. Permite borrar dependencias desde **Administracion → Dependencias** (con confirmacion). No permite eliminar si hay documentos vinculados.

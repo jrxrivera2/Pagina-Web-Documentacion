@@ -11,6 +11,7 @@ import type {
   DocumentoComentario,
   DocumentoDestinatario,
   DocumentoEvento,
+  EstadoCasoManual,
 } from "@/lib/types";
 
 export const documentosKeys = {
@@ -33,6 +34,7 @@ export interface DocumentoListItem extends Documento {
   creador: { nombre_completo: string } | null;
   archivos_count: number;
   destinatarios_count: number;
+  destinatarios_estados: { estado_recepcion: string }[];
 }
 
 interface DocumentoRow extends Documento {
@@ -45,13 +47,13 @@ interface DocumentoRow extends Documento {
     | { nombre_completo: string }[]
     | null;
   documento_archivos?: { id: string }[];
-  documento_destinatarios?: { id: string }[];
+  documento_destinatarios?: { id: string; estado_recepcion: string }[];
 }
 
 const SELECT_LIST =
   "*, dependencia_origen:dependencias!documentos_dependencia_origen_id_fkey(id, nombre)," +
   "creador:profiles!documentos_creado_por_fkey(nombre_completo)," +
-  "documento_archivos(id), documento_destinatarios(id)";
+  "documento_archivos(id), documento_destinatarios(id, estado_recepcion)";
 
 function pickFirst<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
@@ -61,10 +63,14 @@ function pickFirst<T>(value: T | T[] | null | undefined): T | null {
 function mapDocumento(row: DocumentoRow): DocumentoListItem {
   return {
     ...row,
+    estado_caso: (row.estado_caso ?? "abierto") as EstadoCasoManual,
     dependencia_origen: pickFirst(row.dependencia_origen),
     creador: pickFirst(row.creador),
     archivos_count: row.documento_archivos?.length ?? 0,
     destinatarios_count: row.documento_destinatarios?.length ?? 0,
+    destinatarios_estados: (row.documento_destinatarios ?? []).map((d) => ({
+      estado_recepcion: d.estado_recepcion,
+    })),
   };
 }
 
@@ -194,18 +200,12 @@ export function useCrearDocumento() {
 
   return useMutation({
     mutationFn: async (input: CrearDocumentoInput): Promise<CrearDocumentoResult> => {
-      const { data: doc, error: errDoc } = await supabase
-        .from("documentos")
-        .insert({
-          titulo: input.titulo,
-          descripcion: input.descripcion || null,
-          tipo: input.tipo,
-          dependencia_origen_id: input.dependencia_origen_id,
-          creado_por: input.creado_por,
-          estado: "borrador",
-        })
-        .select("*")
-        .single();
+      const { data: doc, error: errDoc } = await supabase.rpc("crear_documento", {
+        p_titulo: input.titulo.trim(),
+        p_descripcion: input.descripcion?.trim() ?? "",
+        p_tipo: input.tipo,
+        p_dependencia_origen_id: input.dependencia_origen_id,
+      });
 
       if (errDoc || !doc) {
         throw new Error(errDoc?.message ?? "No se pudo crear el documento");
@@ -213,16 +213,13 @@ export function useCrearDocumento() {
       const documento = doc as Documento;
 
       if (input.destinatarios.length > 0) {
-        const { error: errDest } = await supabase
-          .from("documento_destinatarios")
-          .insert(
-            input.destinatarios.map((d) => ({
-              documento_id: documento.id,
-              dependencia_id: d.dependencia_id,
-              usuario_id: null,
-              estado_recepcion: "pendiente" as const,
-            })),
-          );
+        const { error: errDest } = await supabase.rpc(
+          "agregar_destinatarios_documento",
+          {
+            p_documento_id: documento.id,
+            p_dependencia_ids: input.destinatarios.map((d) => d.dependencia_id),
+          },
+        );
         if (errDest) throw new Error(errDest.message);
       }
 
@@ -236,19 +233,17 @@ export function useCrearDocumento() {
           .upload(path, file, { upsert: false });
         if (errUp) throw new Error(`Error subiendo ${file.name}: ${errUp.message}`);
 
-        const { data: archivo, error: errAr } = await supabase
-          .from("documento_archivos")
-          .insert({
-            documento_id: documento.id,
-            storage_path: path,
-            nombre_archivo: file.name,
-            mime_type: file.type || null,
-            tamano: file.size,
-            version: documento.version,
-            subido_por: input.creado_por,
-          })
-          .select("*")
-          .single();
+        const { data: archivo, error: errAr } = await supabase.rpc(
+          "registrar_archivo_documento",
+          {
+            p_documento_id: documento.id,
+            p_storage_path: path,
+            p_nombre_archivo: file.name,
+            p_mime_type: file.type || null,
+            p_tamano: file.size,
+            p_version: documento.version,
+          },
+        );
         if (errAr || !archivo) {
           throw new Error(errAr?.message ?? "No se pudo registrar el archivo");
         }
@@ -405,6 +400,47 @@ export function useResponderDocumento(documentoId: string) {
       qc.invalidateQueries({ queryKey: documentosKeys.detalle(documentoId) });
       qc.invalidateQueries({ queryKey: documentosKeys.eventos(documentoId) });
       qc.invalidateQueries({ queryKey: documentosKeys.comentarios(documentoId) });
+      qc.invalidateQueries({ queryKey: documentosKeys.all });
+    },
+  });
+}
+
+export function useRegistrarDescarga(documentoId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      archivoId: string;
+      nombreArchivo: string;
+    }) => {
+      const { error } = await supabase.rpc("registrar_descarga", {
+        p_documento_id: documentoId,
+        p_archivo_id: input.archivoId,
+        p_nombre_archivo: input.nombreArchivo,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: documentosKeys.eventos(documentoId) });
+      qc.invalidateQueries({ queryKey: documentosKeys.detalle(documentoId) });
+      qc.invalidateQueries({ queryKey: documentosKeys.all });
+    },
+  });
+}
+
+export function useActualizarEstadoCaso(documentoId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (estadoCaso: EstadoCasoManual) => {
+      const { data, error } = await supabase.rpc("actualizar_estado_caso", {
+        p_documento_id: documentoId,
+        p_estado_caso: estadoCaso,
+      });
+      if (error) throw new Error(error.message);
+      return data as Documento;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: documentosKeys.detalle(documentoId) });
+      qc.invalidateQueries({ queryKey: documentosKeys.eventos(documentoId) });
       qc.invalidateQueries({ queryKey: documentosKeys.all });
     },
   });

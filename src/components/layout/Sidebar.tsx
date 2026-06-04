@@ -12,6 +12,8 @@ import {
 
 import { cn } from "@/lib/utils";
 import { Can } from "@/components/auth/Can";
+import { useAuth } from "@/hooks/useAuth";
+import { useNotificacionesNoLeidas } from "@/lib/queries/notificaciones";
 import type { ClavePermiso } from "@/lib/types";
 
 interface NavItem {
@@ -20,6 +22,7 @@ interface NavItem {
   icon: typeof FileText;
   permiso?: ClavePermiso | ClavePermiso[];
   end?: boolean;
+  badge?: number;
 }
 
 const navPrincipal: NavItem[] = [
@@ -70,13 +73,27 @@ function NavItemLink({ item }: { item: NavItem }) {
         )
       }
     >
-      <Icon className="h-4 w-4" />
-      <span>{item.label}</span>
+      <Icon className="h-4 w-4 shrink-0" />
+      <span className="flex-1">{item.label}</span>
+      {item.badge !== undefined && item.badge > 0 && (
+        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-bold text-destructive-foreground">
+          {item.badge > 9 ? "9+" : item.badge}
+        </span>
+      )}
     </NavLink>
   );
 }
 
 export function Sidebar() {
+  const { user } = useAuth();
+  const { count: notifNoLeidas } = useNotificacionesNoLeidas(user?.profile.id);
+
+  const navConBadges = navPrincipal.map((item) =>
+    item.to === "/documentos/bandeja"
+      ? { ...item, badge: notifNoLeidas }
+      : item,
+  );
+
   return (
     <aside className="hidden w-64 shrink-0 border-r bg-card md:flex md:flex-col">
       <div className="flex h-16 items-center gap-2 border-b px-6">
@@ -89,7 +106,7 @@ export function Sidebar() {
           <h3 className="px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Documentos
           </h3>
-          {navPrincipal.map((item) =>
+          {navConBadges.map((item) =>
             item.permiso ? (
               <Can key={item.to} permiso={item.permiso}>
                 <NavItemLink item={item} />
@@ -123,7 +140,7 @@ export function Sidebar() {
       <div className="border-t p-4 text-xs text-muted-foreground">
         <div className="flex items-center gap-2">
           <Settings className="h-3 w-3" />
-          <span>v0.1 - Fase 1</span>
+          <span>v0.1</span>
         </div>
       </div>
     </aside>

@@ -29,10 +29,15 @@ import {
 
 import { Can } from "@/components/auth/Can";
 import { EstadoDocumentoBadge } from "@/components/documentos/EstadoBadge";
+import {
+  EstadoCasoBadge,
+  EstadoSolucionBadge,
+} from "@/components/documentos/EstadoCasoBadge";
 import { useAuth } from "@/hooks/useAuth";
 import { useMisDocumentos } from "@/lib/queries/documentos";
+import { calcularResumenCaso } from "@/lib/estado-caso";
 import { fechaRelativa } from "@/lib/formato";
-import type { EstadoDocumento } from "@/lib/types";
+import type { EstadoDocumento, EstadoRecepcion } from "@/lib/types";
 
 const FILTROS: { value: EstadoDocumento | "todos"; label: string }[] = [
   { value: "todos", label: "Todos" },
@@ -135,13 +140,24 @@ export function DocumentosListPage() {
                   <TableHead>Titulo</TableHead>
                   <TableHead>Tipo</TableHead>
                   <TableHead>Estado</TableHead>
+                  <TableHead>Caso</TableHead>
+                  <TableHead>Solucion</TableHead>
                   <TableHead className="text-center">Archivos</TableHead>
                   <TableHead className="text-center">Destinatarios</TableHead>
                   <TableHead>Actualizado</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtrados.map((doc) => (
+                {filtrados.map((doc) => {
+                  const resumen = calcularResumenCaso(
+                    doc.estado,
+                    doc.estado_caso ?? "abierto",
+                    doc.destinatarios_estados.map((d) => ({
+                      estado_recepcion:
+                        d.estado_recepcion as EstadoRecepcion,
+                    })),
+                  );
+                  return (
                   <TableRow key={doc.id} className="cursor-pointer">
                     <TableCell>
                       <Link
@@ -159,6 +175,22 @@ export function DocumentosListPage() {
                     <TableCell className="capitalize">{doc.tipo}</TableCell>
                     <TableCell>
                       <EstadoDocumentoBadge estado={doc.estado} />
+                    </TableCell>
+                    <TableCell>
+                      <EstadoCasoBadge
+                        etiqueta={resumen.etiquetaCaso}
+                        estado={
+                          doc.estado === "borrador"
+                            ? "borrador"
+                            : resumen.estadoCaso
+                        }
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <EstadoSolucionBadge
+                        etiqueta={resumen.etiquetaSolucion}
+                        solucion={resumen.solucion}
+                      />
                     </TableCell>
                     <TableCell className="text-center">
                       <span className="inline-flex items-center gap-1 text-sm text-muted-foreground">
@@ -183,7 +215,8 @@ export function DocumentosListPage() {
                       )}
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           )}

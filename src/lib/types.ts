@@ -15,6 +15,9 @@ export type EstadoDocumento =
   | "rechazado"
   | "archivado";
 
+/** Estado del caso marcado manualmente por el usuario. */
+export type EstadoCasoManual = "abierto" | "cerrado" | "en_seguimiento";
+
 export type EstadoRecepcion =
   | "pendiente"
   | "recibido"
@@ -113,6 +116,7 @@ export interface Documento {
   dependencia_origen_id: string;
   creado_por: string;
   estado: EstadoDocumento;
+  estado_caso: EstadoCasoManual;
   version: number;
   fecha_envio: string | null;
   created_at: string;

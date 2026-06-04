@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   FilePlus2,
   MessageSquare,
+  PencilLine,
   Send,
   XCircle,
 } from "lucide-react";
@@ -43,6 +44,7 @@ const TIPOS: Record<string, TipoConfig> = {
   documento_aprobado: { icon: CheckCircle2, color: "text-emerald-600" },
   documento_rechazado: { icon: XCircle, color: "text-red-600" },
   documento_version: { icon: FilePlus2, color: "text-indigo-600" },
+  estado_caso_actualizado: { icon: PencilLine, color: "text-amber-600" },
 };
 
 function configDe(tipo: string): TipoConfig {

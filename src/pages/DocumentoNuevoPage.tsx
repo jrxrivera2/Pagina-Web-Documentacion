@@ -36,6 +36,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 
 import { useAuth } from "@/hooks/useAuth";
+import { usePermiso } from "@/hooks/usePermiso";
 import { useDependencias } from "@/lib/queries/dependencias";
 import { useCrearDocumento } from "@/lib/queries/documentos";
 import { formatoTamano } from "@/lib/formato";
@@ -63,6 +64,7 @@ type FormValues = z.infer<typeof formSchema>;
 export function DocumentoNuevoPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const puedeCrear = usePermiso("documentos.crear");
   const { data: dependencias = [], isLoading: cargandoDeps } = useDependencias();
   const crearMutation = useCrearDocumento();
 
@@ -137,6 +139,24 @@ export function DocumentoNuevoPage() {
 
   const onSubmit = async (values: FormValues, enviar: boolean) => {
     if (!user) return;
+
+    if (!puedeCrear) {
+      toast.error(
+        "Tu usuario no tiene permiso para crear documentos. Pide al administrador que te asigne el rol emisor en tu dependencia.",
+      );
+      return;
+    }
+
+    const origenValida = dependenciasUsuario.some(
+      (d) => d.id === values.dependencia_origen_id,
+    );
+    if (!origenValida) {
+      toast.error(
+        "Selecciona una dependencia origen donde estes asignado (ej. Nomina).",
+      );
+      return;
+    }
+
     try {
       const res = await crearMutation.mutateAsync({
         titulo: values.titulo,
@@ -158,8 +178,13 @@ export function DocumentoNuevoPage() {
       setArchivos([]);
       navigate(`/documentos/${res.documento.id}`);
     } catch (err) {
-      const mensaje =
+      const raw =
         err instanceof Error ? err.message : "No se pudo crear el documento";
+      const mensaje = raw.includes("row-level security")
+        ? "Error de permisos en Supabase. Ejecuta las migraciones 0011 y 0012 en el SQL Editor y vuelve a iniciar sesion."
+        : raw.includes("No tienes permiso para crear")
+          ? raw
+          : raw;
       toast.error(mensaje);
     }
   };
@@ -181,6 +206,22 @@ export function DocumentoNuevoPage() {
           </p>
         </div>
       </div>
+
+      {!puedeCrear && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
+          Tu cuenta no tiene el permiso <strong>documentos.crear</strong>. El
+          administrador debe asignarte el rol <strong>emisor</strong> en la
+          dependencia Nomina desde Administracion → Usuarios.
+        </div>
+      )}
+
+      {dependenciasUsuario.length === 0 && user && (
+        <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-4 text-sm">
+          No tienes ninguna dependencia asignada. No podras crear documentos
+          hasta que el administrador te asigne una (por ejemplo Nomina con rol
+          emisor).
+        </div>
+      )}
 
       <form className="space-y-6">
         <Card>

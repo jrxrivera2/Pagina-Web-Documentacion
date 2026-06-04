@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Inbox, Paperclip } from "lucide-react";
+import { Bell, Inbox, Paperclip } from "lucide-react";
 
 import {
   Card,
@@ -18,25 +18,49 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+import { BandejaNotificacionesAlert } from "@/components/documentos/BandejaNotificacionesAlert";
 import { EstadoDocumentoBadge } from "@/components/documentos/EstadoBadge";
+import {
+  EstadoCasoBadge,
+  EstadoSolucionBadge,
+} from "@/components/documentos/EstadoCasoBadge";
 import { useAuth } from "@/hooks/useAuth";
 import { useBandeja } from "@/lib/queries/documentos";
+import { calcularResumenCaso } from "@/lib/estado-caso";
 import { fechaRelativa } from "@/lib/formato";
+import { useNotificaciones } from "@/lib/queries/notificaciones";
+import type { EstadoRecepcion } from "@/lib/types";
 
 export function DocumentosBandejaPage() {
   const { user } = useAuth();
-  const { data: documentos = [], isLoading, error } = useBandeja(
-    user?.profile.id,
-  );
+  const userId = user?.profile.id;
+  const { data: documentos = [], isLoading, error } = useBandeja(userId);
+  const { data: notificaciones = [] } = useNotificaciones(userId);
+
+  const noLeidas = notificaciones.filter((n) => !n.leida);
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Bandeja</h1>
-        <p className="text-sm text-muted-foreground">
-          Documentos que han enviado a tu dependencia o directamente a ti.
-        </p>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Bandeja</h1>
+          <p className="text-sm text-muted-foreground">
+            Documentos recibidos y notificaciones nuevas.
+          </p>
+        </div>
+        {noLeidas.length > 0 && (
+          <span className="inline-flex items-center gap-2 rounded-full bg-destructive/10 px-3 py-1 text-sm font-medium text-destructive">
+            <Bell className="h-4 w-4" />
+            {noLeidas.length} notificacion{noLeidas.length === 1 ? "" : "es"}{" "}
+            nueva{noLeidas.length === 1 ? "" : "s"}
+          </span>
+        )}
       </div>
+
+      <BandejaNotificacionesAlert
+        notificaciones={noLeidas}
+        userId={userId}
+      />
 
       <Card>
         <CardHeader>
@@ -72,12 +96,23 @@ export function DocumentosBandejaPage() {
                   <TableHead>Tipo</TableHead>
                   <TableHead>De</TableHead>
                   <TableHead>Estado</TableHead>
+                  <TableHead>Caso</TableHead>
+                  <TableHead>Solucion</TableHead>
                   <TableHead className="text-center">Archivos</TableHead>
                   <TableHead>Recibido</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {documentos.map((doc) => (
+                {documentos.map((doc) => {
+                  const resumen = calcularResumenCaso(
+                    doc.estado,
+                    doc.estado_caso ?? "abierto",
+                    doc.destinatarios_estados.map((d) => ({
+                      estado_recepcion:
+                        d.estado_recepcion as EstadoRecepcion,
+                    })),
+                  );
+                  return (
                   <TableRow key={doc.id}>
                     <TableCell>
                       <Link
@@ -104,6 +139,18 @@ export function DocumentosBandejaPage() {
                     <TableCell>
                       <EstadoDocumentoBadge estado={doc.estado} />
                     </TableCell>
+                    <TableCell>
+                      <EstadoCasoBadge
+                        etiqueta={resumen.etiquetaCaso}
+                        estado={resumen.estadoCaso}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <EstadoSolucionBadge
+                        etiqueta={resumen.etiquetaSolucion}
+                        solucion={resumen.solucion}
+                      />
+                    </TableCell>
                     <TableCell className="text-center">
                       <span className="inline-flex items-center gap-1 text-sm text-muted-foreground">
                         <Paperclip className="h-3 w-3" />
@@ -114,7 +161,8 @@ export function DocumentosBandejaPage() {
                       {fechaRelativa(doc.fecha_envio ?? doc.created_at)}
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           )}

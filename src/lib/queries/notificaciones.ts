@@ -1,9 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
   useMutation,
   useQuery,
   useQueryClient,
+  type QueryClient,
 } from "@tanstack/react-query";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 
 import { supabase } from "@/lib/supabase";
 import type { Notificacion } from "@/lib/types";
@@ -15,6 +17,66 @@ export const notificacionesKeys = {
 };
 
 const LIMITE_LISTA = 30;
+
+type NotificacionListener = (n: Notificacion) => void;
+
+/** Una sola suscripcion Realtime por usuario (evita conflicto campana + bandeja). */
+let canalActivo: RealtimeChannel | null = null;
+let usuarioCanalActivo: string | null = null;
+let suscriptores = 0;
+const oyentes = new Set<NotificacionListener>();
+let queryClientGlobal: QueryClient | null = null;
+
+function iniciarCanal(userId: string, qc: QueryClient) {
+  queryClientGlobal = qc;
+
+  if (canalActivo && usuarioCanalActivo === userId) {
+    return;
+  }
+
+  if (canalActivo) {
+    void supabase.removeChannel(canalActivo);
+    canalActivo = null;
+    usuarioCanalActivo = null;
+  }
+
+  usuarioCanalActivo = userId;
+  canalActivo = supabase
+    .channel(`notificaciones:${userId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "notificaciones",
+        filter: `usuario_id=eq.${userId}`,
+      },
+      (payload) => {
+        const nueva = payload.new as Notificacion;
+        void queryClientGlobal?.invalidateQueries({
+          queryKey: notificacionesKeys.list(userId),
+        });
+        oyentes.forEach((fn) => fn(nueva));
+      },
+    )
+    .subscribe();
+}
+
+function cerrarCanalSiNoHaySuscriptores() {
+  if (suscriptores > 0) return;
+  if (canalActivo) {
+    void supabase.removeChannel(canalActivo);
+    canalActivo = null;
+    usuarioCanalActivo = null;
+  }
+}
+
+/** Cantidad de notificaciones sin leer (derivado de la lista en cache). */
+export function useNotificacionesNoLeidas(userId: string | undefined) {
+  const query = useNotificaciones(userId);
+  const count = (query.data ?? []).filter((n) => !n.leida).length;
+  return { ...query, count };
+}
 
 export function useNotificaciones(userId: string | undefined) {
   return useQuery({
@@ -34,40 +96,32 @@ export function useNotificaciones(userId: string | undefined) {
 }
 
 /**
- * Suscripcion Realtime: cuando llega un INSERT a notificaciones del usuario,
- * invalida la query y ejecuta opcionalmente un callback (util para toasts).
+ * Suscripcion Realtime compartida. Varios componentes pueden usarla;
+ * solo se crea un canal por usuario.
  */
 export function useNotificacionesRealtime(
   userId: string | undefined,
-  onNueva?: (n: Notificacion) => void,
+  onNueva?: NotificacionListener,
 ) {
   const qc = useQueryClient();
+  const onNuevaRef = useRef(onNueva);
+  onNuevaRef.current = onNueva;
 
   useEffect(() => {
     if (!userId) return;
 
-    const canal = supabase
-      .channel(`notificaciones:${userId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "notificaciones",
-          filter: `usuario_id=eq.${userId}`,
-        },
-        (payload) => {
-          const nueva = payload.new as Notificacion;
-          qc.invalidateQueries({ queryKey: notificacionesKeys.list(userId) });
-          onNueva?.(nueva);
-        },
-      )
-      .subscribe();
+    const oyente: NotificacionListener = (n) => onNuevaRef.current?.(n);
+    if (onNueva) oyentes.add(oyente);
+
+    suscriptores += 1;
+    iniciarCanal(userId, qc);
 
     return () => {
-      supabase.removeChannel(canal);
+      if (onNueva) oyentes.delete(oyente);
+      suscriptores -= 1;
+      cerrarCanalSiNoHaySuscriptores();
     };
-  }, [userId, qc, onNueva]);
+  }, [userId, qc]);
 }
 
 export function useMarcarLeida(userId: string | undefined) {
